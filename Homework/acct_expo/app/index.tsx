@@ -1,6 +1,6 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { View, Text, TextInput, Button } from 'react-native';
-import { useDispatch } from 'react-redux';
+import { useDispatch, useSelector } from 'react-redux';
 import { router } from 'expo-router';
 import GoalList from '../components/GoalList';
 import { setUserInfo } from '../store/accountabilitySlice';
@@ -11,8 +11,13 @@ export default function HomePage() {
   const [targetPerWeek, setTargetPerWeek] = useState('');
 
   const dispatch = useDispatch();
+  const token = useSelector((state: any) => state.auth.token);
 
   const goals = ['Gym', 'Study', 'Nutrition', 'Recovery'];
+
+  useEffect(() => {
+    if (!token) router.replace('/login');
+  }, [token]);
 
   const handleMatch = () => {
     if (!displayName || !category || !targetPerWeek) return;
