@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
+  Alert,
   Button,
   KeyboardAvoidingView,
   Platform,
@@ -11,8 +12,9 @@ import {
 import { useDispatch, useSelector } from 'react-redux';
 import { Link } from 'expo-router';
 import CheckInButton from '../components/CheckInButton';
-import { addCheckIn } from '../store/accountabilitySlice';
+import { addCheckIn, setUserInfo } from '../store/accountabilitySlice';
 import { router } from 'expo-router';
+import { apiFetch } from '../lib/api';
 
 export default function MatchPage() {
   const dispatch = useDispatch();
@@ -20,9 +22,11 @@ export default function MatchPage() {
   const [messageText, setMessageText] = useState('');
   const [messages, setMessages] = useState([]);
 
-  const { displayName, category, targetPerWeek, partnerName, checkIns } =
+  const { displayName, category, targetPerWeek, partnerName, matchId, checkIns } =
     useSelector((state) => state.accountability);
   const token = useSelector((state) => state.auth.token);
+  const lastAlertedPartnerRef = useRef(null);
+  const lastSyncedRef = useRef({ partner: '', matchId: '' });
 
   useEffect(() => {
     logScrollRef.current?.scrollToEnd?.({ animated: true });
@@ -31,6 +35,59 @@ export default function MatchPage() {
   useEffect(() => {
     if (!token) router.replace('/login');
   }, [token]);
+
+  useEffect(() => {
+    if (!token || !category) return;
+
+    const poll = async () => {
+      try {
+        const data = await apiFetch('/api/match/status/', { token, method: 'GET' });
+        if (data?.status === 'matched' && data?.partner_name) {
+          const p = data.partner_name;
+          const mid = data.match_id || matchId || '';
+          if (lastAlertedPartnerRef.current !== p) {
+            lastAlertedPartnerRef.current = p;
+            Alert.alert('You have a match!', `You're paired with ${p}.`);
+          }
+          if (lastSyncedRef.current.partner !== p || lastSyncedRef.current.matchId !== mid) {
+            lastSyncedRef.current = { partner: p, matchId: mid };
+            dispatch(
+              setUserInfo({
+                displayName,
+                category,
+                targetPerWeek,
+                partnerName: p,
+                matchId: mid,
+              })
+            );
+          }
+        } else if (data?.status === 'waiting' && data?.match_id) {
+          const mid = data.match_id;
+          if (
+            lastSyncedRef.current.partner !== 'Searching...' ||
+            lastSyncedRef.current.matchId !== mid
+          ) {
+            lastSyncedRef.current = { partner: 'Searching...', matchId: mid };
+            dispatch(
+              setUserInfo({
+                displayName,
+                category,
+                targetPerWeek,
+                partnerName: 'Searching...',
+                matchId: mid,
+              })
+            );
+          }
+        }
+      } catch {
+        /* ignore transient poll errors */
+      }
+    };
+
+    poll();
+    const interval = setInterval(poll, 3000);
+    return () => clearInterval(interval);
+  }, [token, category, displayName, targetPerWeek, dispatch, matchId]);
 
   const handleCheckIn = (result) => {
     const now = new Date();

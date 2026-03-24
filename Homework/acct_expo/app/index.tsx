@@ -4,6 +4,8 @@ import { useDispatch, useSelector } from 'react-redux';
 import { router } from 'expo-router';
 import GoalList from '../components/GoalList';
 import { setUserInfo } from '../store/accountabilitySlice';
+import { Redirect } from 'expo-router';
+import { apiFetch } from '../lib/api';
 
 export default function HomePage() {
   const [displayName, setDisplayName] = useState('');
@@ -15,19 +17,38 @@ export default function HomePage() {
 
   const goals = ['Gym', 'Study', 'Nutrition', 'Recovery'];
 
-  useEffect(() => {
-    if (!token) router.replace('/login');
-  }, [token]);
+  if (!token) {
+    return <Redirect href="/login" />;
+  }
 
-  const handleMatch = () => {
+  const handleMatch = async () => {
     if (!displayName || !category || !targetPerWeek) return;
+
+    let partnerName = 'Searching...';
+    let matchId = '';
+    try {
+      const result = await apiFetch('/api/match/find/', {
+        token,
+        body: {
+          goal_category: category,
+          target_per_week: Number(targetPerWeek),
+        },
+      });
+      if (result?.match_id) matchId = result.match_id;
+      if (result?.status === 'matched' && result?.partner_name) {
+        partnerName = result.partner_name;
+      }
+    } catch (e) {
+      console.error('Match request failed:', e);
+    }
 
     dispatch(
       setUserInfo({
         displayName,
         category,
         targetPerWeek,
-        partnerName: 'Alex',
+        partnerName,
+        matchId,
       })
     );
 

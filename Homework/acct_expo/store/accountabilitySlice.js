@@ -7,6 +7,7 @@ const accountabilitySlice = createSlice({
     category: '',
     targetPerWeek: '',
     partnerName: '',
+    matchId: '',
     checkIns: [],
   },
   reducers: {
@@ -15,6 +16,9 @@ const accountabilitySlice = createSlice({
       state.category = action.payload.category;
       state.targetPerWeek = action.payload.targetPerWeek;
       state.partnerName = action.payload.partnerName;
+      if (action.payload.matchId !== undefined) {
+        state.matchId = action.payload.matchId;
+      }
     },
     addCheckIn: (state, action) => {
       state.checkIns.push(action.payload);
