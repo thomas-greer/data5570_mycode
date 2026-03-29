@@ -14,7 +14,8 @@ dist/
 downloads/
 eggs/
 .eggs/
-lib/
+# Python packaging dirs at repo root only (do not ignore acct_expo/lib/)
+/lib/
 lib64/
 parts/
 sdist/
