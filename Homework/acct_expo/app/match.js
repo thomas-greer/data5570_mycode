@@ -12,9 +12,143 @@ import {
 import { useDispatch, useSelector } from 'react-redux';
 import { Link } from 'expo-router';
 import CheckInButton from '../components/CheckInButton';
-import { addCheckIn, setUserInfo } from '../store/accountabilitySlice';
 import { router } from 'expo-router';
-import { apiFetch } from '../lib/api';
+import { fetchCheckIns, fetchMatchStatus, submitCheckIn } from '../store/matchThunks';
+
+function buildCalendarCells(checkInByDay) {
+  const monthDate = new Date();
+  const year = monthDate.getFullYear();
+  const month = monthDate.getMonth();
+
+  const startOfMonth = new Date(year, month, 1);
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+  const startWeekday = startOfMonth.getDay();
+
+  const toDateKey = (d) => {
+    const yyyy = d.getFullYear();
+    const mm = String(d.getMonth() + 1).padStart(2, '0');
+    const dd = String(d.getDate()).padStart(2, '0');
+    return `${yyyy}-${mm}-${dd}`;
+  };
+
+  const dotColorForResult = (result) => {
+    if (result === 'Did It') return '#16A34A';
+    if (result === 'Partial') return '#F59E0B';
+    if (result === 'Missed') return '#DC2626';
+    return null;
+  };
+
+  const todayKey = toDateKey(new Date());
+
+  const cells = [];
+  for (let i = 0; i < startWeekday; i++) {
+    cells.push({ type: 'empty', key: `e-${i}` });
+  }
+  for (let day = 1; day <= daysInMonth; day++) {
+    const d = new Date(year, month, day);
+    const key = toDateKey(d);
+    const result = checkInByDay[key] || null;
+    cells.push({
+      type: 'day',
+      key,
+      day,
+      isToday: key === todayKey,
+      dotColor: result ? dotColorForResult(result) : null,
+    });
+  }
+  while (cells.length % 7 !== 0) {
+    cells.push({ type: 'empty', key: `t-${cells.length}` });
+  }
+
+  const title = monthDate.toLocaleString(undefined, { month: 'long', year: 'numeric' });
+  return { title, cells };
+}
+
+function CalendarGrid({ cells }) {
+  return (
+    <View
+      style={{
+        flex: 1,
+        minWidth: 150,
+        borderWidth: 1,
+        borderColor: '#00000022',
+        borderRadius: 12,
+        padding: 10,
+        backgroundColor: '#FFFFFF',
+      }}
+    >
+      <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 8 }}>
+        {['S', 'M', 'T', 'W', 'T', 'F', 'S'].map((d) => (
+          <Text key={d} style={{ width: '14.2857%', textAlign: 'center', color: '#475569', fontSize: 11 }}>
+            {d}
+          </Text>
+        ))}
+      </View>
+      <View style={{ flexDirection: 'row', flexWrap: 'wrap' }}>
+        {cells.map((cell) => (
+          <View
+            key={cell.key}
+            style={{
+              width: '14.2857%',
+              paddingVertical: 4,
+              alignItems: 'center',
+              justifyContent: 'center',
+              opacity: cell.type === 'empty' ? 0 : 1,
+            }}
+          >
+            {cell.type === 'day' ? (
+              <View style={{ alignItems: 'center' }}>
+                <View
+                  style={[
+                    {
+                      minWidth: 22,
+                      height: 22,
+                      borderRadius: 8,
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                    },
+                    cell.isToday && {
+                      borderWidth: 1,
+                      borderColor: '#11182733',
+                      backgroundColor: '#F1F5F9',
+                    },
+                  ]}
+                >
+                  <Text style={{ color: '#111827', fontSize: 11 }}>{cell.day}</Text>
+                </View>
+                <View
+                  style={{
+                    marginTop: 2,
+                    width: 6,
+                    height: 6,
+                    borderRadius: 999,
+                    backgroundColor: cell.dotColor || 'transparent',
+                  }}
+                />
+              </View>
+            ) : (
+              <Text>{' '}</Text>
+            )}
+          </View>
+        ))}
+      </View>
+      <View style={{ flexDirection: 'row', gap: 8, marginTop: 8, flexWrap: 'wrap' }}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+          <View style={{ width: 6, height: 6, borderRadius: 999, backgroundColor: '#16A34A' }} />
+          <Text style={{ color: '#475569', fontSize: 10 }}>Did</Text>
+        </View>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+          <View style={{ width: 6, height: 6, borderRadius: 999, backgroundColor: '#F59E0B' }} />
+          <Text style={{ color: '#475569', fontSize: 10 }}>Partial</Text>
+        </View>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+          <View style={{ width: 6, height: 6, borderRadius: 999, backgroundColor: '#DC2626' }} />
+          <Text style={{ color: '#475569', fontSize: 10 }}>Missed</Text>
+        </View>
+      </View>
+    </View>
+  );
+}
 
 export default function MatchPage() {
   const dispatch = useDispatch();
@@ -22,15 +156,21 @@ export default function MatchPage() {
   const [messageText, setMessageText] = useState('');
   const [messages, setMessages] = useState([]);
 
-  const { displayName, category, targetPerWeek, partnerName, matchId, checkIns } =
-    useSelector((state) => state.accountability);
+  const {
+    displayName,
+    category,
+    targetPerWeek,
+    partnerName,
+    myCheckinsByDate,
+    partnerCheckinsByDate,
+  } = useSelector((state) => state.accountability);
   const token = useSelector((state) => state.auth.token);
+  const authUser = useSelector((state) => state.auth.user);
   const lastAlertedPartnerRef = useRef(null);
-  const lastSyncedRef = useRef({ partner: '', matchId: '' });
 
   useEffect(() => {
     logScrollRef.current?.scrollToEnd?.({ animated: true });
-  }, [checkIns.length, messages.length]);
+  }, [messages.length]);
 
   useEffect(() => {
     if (!token) router.replace('/login');
@@ -39,66 +179,50 @@ export default function MatchPage() {
   useEffect(() => {
     if (!token || !category) return;
 
-    const poll = async () => {
-      try {
-        const data = await apiFetch('/api/match/status/', { token, method: 'GET' });
-        if (data?.status === 'matched' && data?.partner_name) {
-          const p = data.partner_name;
-          const mid = data.match_id || matchId || '';
-          if (lastAlertedPartnerRef.current !== p) {
-            lastAlertedPartnerRef.current = p;
-            Alert.alert('You have a match!', `You're paired with ${p}.`);
-          }
-          if (lastSyncedRef.current.partner !== p || lastSyncedRef.current.matchId !== mid) {
-            lastSyncedRef.current = { partner: p, matchId: mid };
-            dispatch(
-              setUserInfo({
-                displayName,
-                category,
-                targetPerWeek,
-                partnerName: p,
-                matchId: mid,
-              })
-            );
-          }
-        } else if (data?.status === 'waiting' && data?.match_id) {
-          const mid = data.match_id;
-          if (
-            lastSyncedRef.current.partner !== 'Searching...' ||
-            lastSyncedRef.current.matchId !== mid
-          ) {
-            lastSyncedRef.current = { partner: 'Searching...', matchId: mid };
-            dispatch(
-              setUserInfo({
-                displayName,
-                category,
-                targetPerWeek,
-                partnerName: 'Searching...',
-                matchId: mid,
-              })
-            );
-          }
-        }
-      } catch {
-        /* ignore transient poll errors */
-      }
+    const poll = () => {
+      dispatch(fetchMatchStatus({ token }));
+      dispatch(fetchCheckIns({ token }));
     };
 
     poll();
     const interval = setInterval(poll, 3000);
     return () => clearInterval(interval);
-  }, [token, category, displayName, targetPerWeek, dispatch, matchId]);
+  }, [token, category, dispatch]);
+
+  useEffect(() => {
+    if (!partnerName) return;
+    if (partnerName === 'Searching...') return;
+    if (lastAlertedPartnerRef.current === partnerName) return;
+
+    lastAlertedPartnerRef.current = partnerName;
+    Alert.alert('You have a match!', `You're paired with ${partnerName}.`);
+  }, [partnerName]);
+
+  const STATUS_API = {
+    'Did It': 'did_it',
+    Partial: 'partial',
+    Missed: 'missed',
+  };
 
   const handleCheckIn = (result) => {
-    const now = new Date();
-    dispatch(
-      addCheckIn({
-        result,
-        timestamp: now.toLocaleString(),
-        iso: now.toISOString(),
-      })
-    );
+    if (!token) return;
+    const status = STATUS_API[result];
+    if (!status) return;
+    dispatch(submitCheckIn({ token, status }));
   };
+
+  const youCalendar = useMemo(
+    () => buildCalendarCells(myCheckinsByDate || {}),
+    [myCheckinsByDate]
+  );
+  const partnerCalendar = useMemo(
+    () => buildCalendarCells(partnerCheckinsByDate || {}),
+    [partnerCheckinsByDate]
+  );
+
+  const youLabel = authUser?.username || 'You';
+  const partnerLabel =
+    partnerName && partnerName !== 'Searching...' ? partnerName : 'Partner';
 
   const handleSendMessage = () => {
     const trimmed = messageText.trim();
@@ -110,66 +234,6 @@ export default function MatchPage() {
     ]);
     setMessageText('');
   };
-
-  const calendar = useMemo(() => {
-    const monthDate = new Date();
-    const year = monthDate.getFullYear();
-    const month = monthDate.getMonth(); // 0-11
-
-    const startOfMonth = new Date(year, month, 1);
-    const daysInMonth = new Date(year, month + 1, 0).getDate();
-    const startWeekday = startOfMonth.getDay(); // 0=Sun
-
-    const toDateKey = (d) => {
-      const yyyy = d.getFullYear();
-      const mm = String(d.getMonth() + 1).padStart(2, '0');
-      const dd = String(d.getDate()).padStart(2, '0');
-      return `${yyyy}-${mm}-${dd}`;
-    };
-
-    const dotColorForResult = (result) => {
-      if (result === 'Did It') return '#16A34A';
-      if (result === 'Partial') return '#F59E0B';
-      if (result === 'Missed') return '#DC2626';
-      return null;
-    };
-
-    const checkInByDay = {};
-    for (const c of checkIns) {
-      const d =
-        (c?.iso && new Date(c.iso)) ||
-        (c?.timestamp && new Date(c.timestamp)) ||
-        (c?.date && new Date(c.date));
-      if (!d || Number.isNaN(d.getTime())) continue;
-      const key = toDateKey(d);
-      checkInByDay[key] = c?.result;
-    }
-
-    const todayKey = toDateKey(new Date());
-
-    const cells = [];
-    for (let i = 0; i < startWeekday; i++) {
-      cells.push({ type: 'empty', key: `e-${i}` });
-    }
-    for (let day = 1; day <= daysInMonth; day++) {
-      const d = new Date(year, month, day);
-      const key = toDateKey(d);
-      const result = checkInByDay[key] || null;
-      cells.push({
-        type: 'day',
-        key,
-        day,
-        isToday: key === todayKey,
-        dotColor: result ? dotColorForResult(result) : null,
-      });
-    }
-    while (cells.length % 7 !== 0) {
-      cells.push({ type: 'empty', key: `t-${cells.length}` });
-    }
-
-    const title = monthDate.toLocaleString(undefined, { month: 'long', year: 'numeric' });
-    return { title, cells };
-  }, [checkIns]);
 
   const messageItems = useMemo(
     () =>
@@ -209,85 +273,16 @@ export default function MatchPage() {
           </View>
 
           <Text style={{ marginTop: 20, marginBottom: 8, fontWeight: '600' }}>
-            {calendar.title}
+            {youCalendar.title}
           </Text>
-          <View
-            style={{
-              borderWidth: 1,
-              borderColor: '#00000022',
-              borderRadius: 12,
-              padding: 10,
-              backgroundColor: '#FFFFFF',
-            }}
-          >
-            <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 8 }}>
-              {['S', 'M', 'T', 'W', 'T', 'F', 'S'].map((d) => (
-                <Text key={d} style={{ width: '14.2857%', textAlign: 'center', color: '#475569' }}>
-                  {d}
-                </Text>
-              ))}
+          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 12 }}>
+            <View style={{ flex: 1, minWidth: 150 }}>
+              <Text style={{ marginBottom: 6, fontWeight: '600', color: '#334155' }}>{youLabel}</Text>
+              <CalendarGrid cells={youCalendar.cells} />
             </View>
-            <View style={{ flexDirection: 'row', flexWrap: 'wrap' }}>
-              {calendar.cells.map((cell) => (
-                <View
-                  key={cell.key}
-                  style={{
-                    width: '14.2857%',
-                    paddingVertical: 6,
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    opacity: cell.type === 'empty' ? 0 : 1,
-                  }}
-                >
-                  {cell.type === 'day' ? (
-                    <View style={{ alignItems: 'center' }}>
-                      <View
-                        style={[
-                          {
-                            minWidth: 26,
-                            height: 26,
-                            borderRadius: 8,
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                          },
-                          cell.isToday && {
-                            borderWidth: 1,
-                            borderColor: '#11182733',
-                            backgroundColor: '#F1F5F9',
-                          },
-                        ]}
-                      >
-                        <Text style={{ color: '#111827' }}>{cell.day}</Text>
-                      </View>
-                      <View
-                        style={{
-                          marginTop: 4,
-                          width: 8,
-                          height: 8,
-                          borderRadius: 999,
-                          backgroundColor: cell.dotColor || 'transparent',
-                        }}
-                      />
-                    </View>
-                  ) : (
-                    <Text>{' '}</Text>
-                  )}
-                </View>
-              ))}
-            </View>
-            <View style={{ flexDirection: 'row', gap: 12, marginTop: 10, flexWrap: 'wrap' }}>
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                <View style={{ width: 8, height: 8, borderRadius: 999, backgroundColor: '#16A34A' }} />
-                <Text style={{ color: '#475569' }}>Did It</Text>
-              </View>
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                <View style={{ width: 8, height: 8, borderRadius: 999, backgroundColor: '#F59E0B' }} />
-                <Text style={{ color: '#475569' }}>Partial</Text>
-              </View>
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                <View style={{ width: 8, height: 8, borderRadius: 999, backgroundColor: '#DC2626' }} />
-                <Text style={{ color: '#475569' }}>Missed</Text>
-              </View>
+            <View style={{ flex: 1, minWidth: 150 }}>
+              <Text style={{ marginBottom: 6, fontWeight: '600', color: '#334155' }}>{partnerLabel}</Text>
+              <CalendarGrid cells={partnerCalendar.cells} />
             </View>
           </View>
 

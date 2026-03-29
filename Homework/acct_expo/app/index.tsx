@@ -5,14 +5,14 @@ import { router } from 'expo-router';
 import GoalList from '../components/GoalList';
 import { setUserInfo } from '../store/accountabilitySlice';
 import { Redirect } from 'expo-router';
-import { apiFetch } from '../lib/api';
+import { findMatch } from '../store/matchThunks';
 
 export default function HomePage() {
   const [displayName, setDisplayName] = useState('');
   const [category, setCategory] = useState('');
   const [targetPerWeek, setTargetPerWeek] = useState('');
 
-  const dispatch = useDispatch();
+  const dispatch: any = useDispatch();
   const token = useSelector((state: any) => state.auth.token);
 
   const goals = ['Gym', 'Study', 'Nutrition', 'Recovery'];
@@ -24,33 +24,37 @@ export default function HomePage() {
   const handleMatch = async () => {
     if (!displayName || !category || !targetPerWeek) return;
 
-    let partnerName = 'Searching...';
-    let matchId = '';
-    try {
-      const result = await apiFetch('/api/match/find/', {
-        token,
-        body: {
-          goal_category: category,
-          target_per_week: Number(targetPerWeek),
-        },
-      });
-      if (result?.match_id) matchId = result.match_id;
-      if (result?.status === 'matched' && result?.partner_name) {
-        partnerName = result.partner_name;
-      }
-    } catch (e) {
-      console.error('Match request failed:', e);
-    }
-
     dispatch(
       setUserInfo({
         displayName,
         category,
         targetPerWeek,
-        partnerName,
-        matchId,
       })
     );
+
+    try {
+      const result: any = await dispatch(
+        (findMatch as any)({
+          token,
+          goal_category: category,
+          target_per_week: Number(targetPerWeek),
+        })
+      ).unwrap();
+
+      dispatch(
+        setUserInfo({
+          partnerName: result?.partner_name || 'Searching...',
+          matchId: result?.match_id || '',
+        })
+      );
+    } catch (e) {
+      console.error('Match request failed:', e);
+      dispatch(
+        setUserInfo({
+          partnerName: 'Searching...',
+        })
+      );
+    }
 
     router.push('/match');
   };

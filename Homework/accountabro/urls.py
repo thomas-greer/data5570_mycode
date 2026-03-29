@@ -8,5 +8,7 @@ urlpatterns = [
     path("api/auth/me/", views.me, name="me"),
     path("api/match/find/", views.find_match, name="find_match"),
     path("api/match/status/", views.match_status, name="match_status"),
+    path("api/checkins/", views.checkins_month, name="checkins_month"),
+    path("api/checkins/submit/", views.checkin_submit, name="checkin_submit"),
 ]
 
