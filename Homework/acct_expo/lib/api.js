@@ -1,5 +1,5 @@
 // Expo web: same machine, Django `python manage.py runserver` → port 8000
-const DEFAULT_BASE_URL = 'http://localhost:8000';
+const DEFAULT_BASE_URL = 'https://brought-class-geological-lighter.trycloudflare.com';
 
 export function getApiBaseUrl() {
   return process.env.EXPO_PUBLIC_API_BASE_URL || DEFAULT_BASE_URL;
